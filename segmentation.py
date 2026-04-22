@@ -1,47 +1,66 @@
-import os
-import sys
+import numpy as np
 import torch
 import cv2
 from sam3 import build_sam3_image_model
 from sam3.model.sam3_image_processor import Sam3Processor
+from PIL import Image
+from typing import Union
 
+# class to initiate and do segmentation via SAM3
+class Segmentation:
+    def __init__(self, model_path: str, device: str = "cuda" if torch.cuda.is_available() else "cpu"):
+        self.model_path = model_path
+        self.device = device
+        self.model = build_sam3_image_model(checkpoint_path=model_path, load_from_HF=False, device=device, eval_mode=True)
+        self.processor = Sam3Processor(self.model, device=device)
 
-# Resolve paths relative to this file so the script works no matter the CWD.
-_HERE = os.path.dirname(os.path.abspath(__file__))
+    def _to_pil_rgb(self, image: Union[str, np.ndarray]) -> Image.Image:
+        """
+        Convert an image path or numpy array into a PIL RGB image.
 
-# Checkpoint paths, only image checkpoint is needed
-image_ckpt_path = os.path.join(_HERE, "checkpoints", "sam3.pt")
-# no need for video checkpoint
-#video_ckpt_path = os.path.join(_HERE, "checkpoints", "sam3.1_multiplex.pt")
+        - If `image` is a path, it is read with OpenCV (BGR) then converted to RGB.
+        - If `image` is an array, it is assumed to already be RGB uint8 (H, W, 3).
+        """
+        if isinstance(image, str):
+            bgr = cv2.imread(image)
+            if bgr is None:
+                raise ValueError(f"Could not read image at path: {image}")
+            rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        else:
+            if image.ndim != 3 or image.shape[2] != 3:
+                raise ValueError("image must have shape (H, W, 3)")
+            rgb = image
+        return Image.fromarray(rgb)
 
-# Device to use for the model
-device = "cuda" if torch.cuda.is_available() else "cpu"
+    def segment(self, image: Union[str, np.ndarray], prompt: str):
+        """
+        Run SAM3 segmentation with a text prompt.
 
-sam_model = build_sam3_image_model(
-    checkpoint_path=image_ckpt_path,
-    load_from_HF=False,
-    device=device,
-    eval_mode=True,
-)
+        Args:
+            image: path to an image file, or an RGB numpy array (H, W, 3).
+            prompt: text prompt for SAM3.
 
-# processor to load the model
-_processor = Sam3Processor(sam_model, device=device)
-print("SAM3 model loaded successfully")
+        Returns:
+            masks: (N, H, W) bool numpy array
+            scores: (N,) float numpy array
+            boxes: (N, 4) float numpy array
+        """
+        image_pil = self._to_pil_rgb(image)
 
-image = cv2.imread(os.path.join(_HERE, "apple.jpg"))
-image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        with torch.inference_mode():
+            if self.device == "cuda":
+                with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                    state = self.processor.set_image(image_pil)
+                    state = self.processor.set_text_prompt(prompt=prompt, state=state)
+            else:
+                state = self.processor.set_image(image_pil)
+                state = self.processor.set_text_prompt(prompt=prompt, state=state)
 
-# On CUDA, run SAM3 in bf16 end-to-end to avoid dtype mismatches
-with torch.inference_mode():
-    if device == "cuda":
-        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-            state = _processor.set_image(image_rgb)
-            state = _processor.set_text_prompt(prompt="apple", state=state)
-    else:
-        state = _processor.set_image(image_rgb)
-        state = _processor.set_text_prompt(prompt="apple", state=state)
-
-masks = state["masks"]  # bool tensor [N, H, W]
-scores = state["scores"]
-boxes = state["boxes"]
-print({"num_masks": int(masks.shape[0]), "scores": scores.tolist(), "boxes": boxes.tolist()})
+        masks = state["masks"].detach().cpu().numpy().astype(bool)
+        # Some SAM variants include a singleton channel dimension: (N, 1, H, W).
+        if masks.ndim == 4 and masks.shape[1] == 1:
+            masks = masks[:, 0, :, :]
+        # Under CUDA autocast, SAM3 may output bf16 tensors; NumPy can't convert bf16.
+        scores = state["scores"].detach().to(dtype=torch.float32).cpu().numpy()
+        boxes = state["boxes"].detach().to(dtype=torch.float32).cpu().numpy()
+        return masks, scores, boxes
