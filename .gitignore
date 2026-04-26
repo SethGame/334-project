@@ -4,3 +4,4 @@ checkpoints/
 apple.jpg
 test.py
 *.xyzrgb
+*.ply
