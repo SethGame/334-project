@@ -13,9 +13,6 @@ def estimate_intrinsics(
 ) -> tuple[float, float, float, float]:
     """
     Estimate pinhole intrinsics (fx, fy, cx, cy) from image size using an assumed FOV.
-
-    This is an approximation (your depth is also relative), but it's enough to
-    produce stable-looking point clouds for the MVP.
     """
 
     # calculate the center of the image

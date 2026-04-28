@@ -1,7 +1,7 @@
 *.txt
 login.py
 checkpoints/
-apple.jpg
+*.jpg
 test.py
 *.xyzrgb
 *.ply
