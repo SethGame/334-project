@@ -8,6 +8,7 @@ from typing import Union
 
 # class to initiate and do segmentation via SAM3
 class Segmentation:
+    # initialize the model path and device
     def __init__(self, model_path: str, device: str = "cuda" if torch.cuda.is_available() else "cpu"):
         self.model_path = model_path
         self.device = device
@@ -21,6 +22,7 @@ class Segmentation:
         - If `image` is a path, it is read with OpenCV (BGR) then converted to RGB.
         - If `image` is an array, it is assumed to already be RGB uint8 (H, W, 3).
         """
+        # if the image is a path, read it with OpenCV (BGR) then convert to RGB
         if isinstance(image, str):
             bgr = cv2.imread(image)
             if bgr is None:
@@ -48,19 +50,23 @@ class Segmentation:
         image_pil = self._to_pil_rgb(image)
 
         with torch.inference_mode():
+            # if using cuda, use autocast to cast the tensors to bf16
             if self.device == "cuda":
                 with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                     state = self.processor.set_image(image_pil)
                     state = self.processor.set_text_prompt(prompt=prompt, state=state)
+            # if not using cuda, use regular inference
             else:
                 state = self.processor.set_image(image_pil)
                 state = self.processor.set_text_prompt(prompt=prompt, state=state)
 
         masks = state["masks"].detach().cpu().numpy().astype(bool)
         # Some SAM variants include a singleton channel dimension: (N, 1, H, W).
+        # this is to remove the singleton channel dimension
         if masks.ndim == 4 and masks.shape[1] == 1:
             masks = masks[:, 0, :, :]
         # Under CUDA autocast, SAM3 may output bf16 tensors; NumPy can't convert bf16.
+        # this prevents the error of converting bf16 to float32
         scores = state["scores"].detach().to(dtype=torch.float32).cpu().numpy()
         boxes = state["boxes"].detach().to(dtype=torch.float32).cpu().numpy()
         return masks, scores, boxes

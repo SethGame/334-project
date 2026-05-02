@@ -20,12 +20,14 @@ def pointcloud_from_arrays(points_xyz: np.ndarray, colors_rgb: np.ndarray) -> o3
     if colors_rgb.ndim != 2 or colors_rgb.shape[1] != 3 or colors_rgb.shape[0] != points_xyz.shape[0]:
         raise ValueError(f"colors_rgb must have shape (N, 3) matching points; got {colors_rgb.shape}")
 
+    # get the points and colors
     pts = points_xyz.astype(np.float64, copy=False)
     cols = colors_rgb.astype(np.float64, copy=False)
+    # if the colors are greater than 1, divide by 255
     if cols.max() > 1.0:
         cols = cols / 255.0
     cols = np.clip(cols, 0.0, 1.0)
-
+    # create the point cloud
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(pts)
     pcd.colors = o3d.utility.Vector3dVector(cols)
@@ -64,7 +66,7 @@ def poisson_reconstruction(pcd: o3d.geometry.PointCloud, *, depth: int = 9, dens
     Poisson surface reconstruction with density-based trimming.
     """
     mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd, depth=int(depth))
-
+    # if the densities are not None, and the length of the densities is greater than 0, and the density trim quantile is between 0 and 1, then the vertices to remove are the vertices that are less than the threshold
     if densities is not None and len(densities) > 0 and 0.0 < density_trim_quantile < 1.0:
         dens = np.asarray(densities)
         thresh = np.quantile(dens, float(density_trim_quantile))
@@ -79,6 +81,7 @@ def mesh_point_cloud(points_xyz: np.ndarray, colors_rgb: np.ndarray, *, voxel_si
     """
     End-to-end meshing: arrays -> cleaned point cloud -> Poisson mesh.
     """
+    # call all of the functions, and return the mesh
     pcd = pointcloud_from_arrays(points_xyz, colors_rgb)
     pcd = clean_point_cloud(pcd, voxel_size=voxel_size)
     mesh = poisson_reconstruction(pcd, depth=poisson_depth, density_trim_quantile=density_trim_quantile)

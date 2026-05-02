@@ -12,7 +12,7 @@ class DepthEstimator:
         # load the model and transforms
         self.model = torch.hub.load("intel-isl/MiDaS", model_type).to(self.device).eval()
         transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
-
+        # if the model type is hybrid or large, use dpt_transform otherwise use small_transform
         if model_type in ("DPT_Hybrid", "DPT_Large"):
             self.transform = transforms.dpt_transform
         else:
@@ -32,10 +32,10 @@ class DepthEstimator:
         inp = self.transform(image_rgb).to(self.device)
 
         pred = self.model(inp)
+        # if the pred depth map is 3D, unsqueeze it to 2D
         if pred.ndim == 3:
             pred = pred.unsqueeze(1)
         # interpolate the predicted depth map to the original image size
         pred = torch.nn.functional.interpolate(pred, size=image_rgb.shape[:2], mode="bilinear", align_corners=False)
-
         depth = pred.squeeze().detach().float().cpu().numpy()
         return depth

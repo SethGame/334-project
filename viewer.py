@@ -6,7 +6,7 @@ from typing import Optional, Union
 import numpy as np
 import open3d as o3d
 
-
+# similar to pointcloud function in mesh.py, but this is for the viewer
 def pointcloud_from_arrays(points_xyz: np.ndarray, colors_rgb: Optional[np.ndarray] = None) -> o3d.geometry.PointCloud:
     """
     Build an Open3D point cloud from numpy arrays.

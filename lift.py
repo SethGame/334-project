@@ -45,6 +45,7 @@ def lift_masked_points(
         points_xyz: (N, 3) float32
         colors_rgb: (N, 3) uint8 (same as input image)
     """
+    # if the image does not have the correct shape, raise an error
     if image_rgb.ndim != 3 or image_rgb.shape[2] != 3:
         raise ValueError("image_rgb must have shape (H, W, 3)")
     h, w = image_rgb.shape[:2]
@@ -65,7 +66,7 @@ def lift_masked_points(
         cy = _cy if cy is None else cy
 
     mask_bool = mask.astype(bool)
-
+    # if the depth map is finite and greater than 0, and the stride is greater than 1, then the valid points are the points that are in the mask and the depth map is finite and greater than 0 and the stride is greater than 1
     valid = mask_bool & np.isfinite(depth_map) & (depth_map > 0)
     if stride > 1:
         valid &= ((np.arange(h)[:, None] % stride) == 0) & ((np.arange(w)[None, :] % stride) == 0)
@@ -73,11 +74,11 @@ def lift_masked_points(
     ys, xs = np.where(valid)
     if ys.size == 0:
         return np.empty((0, 3), dtype=np.float32), np.empty((0, 3), dtype=np.uint8)
-
+    # calculate the z, x, y coordinates
     z = (depth_map[ys, xs].astype(np.float32) * float(depth_scale))
     x = ((xs.astype(np.float32) - float(cx)) * z) / float(fx)
     y = ((ys.astype(np.float32) - float(cy)) * z) / float(fy)
-
+    # conver the coordinates to a numpy array, and convert the coordinates to float32
     points_xyz = np.stack([x, y, z], axis=1).astype(np.float32, copy=False)
     colors_rgb = image_rgb[ys, xs].astype(np.uint8, copy=False)
     return points_xyz, colors_rgb
@@ -104,11 +105,12 @@ def lift(image_path: str, prompt: str):
     best_idx = int(np.argmax(scores)) if scores.size else 0
     best_mask = masks[best_idx]
 
+    # read the image and convert it to RGB
     bgr = cv2.imread(image_path)
     if bgr is None:
         raise ValueError(f"Could not read image at path: {image_path}")
     image_rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
     depth_map = depth.predict_depth(image_rgb)
-
+    # lift the masked points into a 3D point cloud
     points_xyz, colors_rgb = lift_masked_points(image_rgb, depth_map, best_mask, stride=2)
     return points_xyz, colors_rgb, best_mask, depth_map
