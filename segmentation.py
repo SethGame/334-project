@@ -1,18 +1,55 @@
+import os
+from pathlib import Path
+
 import numpy as np
 import torch
 import cv2
 from sam3 import build_sam3_image_model
 from sam3.model.sam3_image_processor import Sam3Processor
 from PIL import Image
-from typing import Union
+from typing import Optional, Union
+
+
+def resolve_sam3_bpe_path() -> str:
+    """
+    PyPI `sam3` wheels omit tokenizer assets; the library defaults to a path under
+    site-packages that does not exist. Use a local copy next to this project.
+    Override with env SAM3_BPE_PATH if needed.
+    """
+    env = os.environ.get("SAM3_BPE_PATH")
+    if env:
+        p = Path(env).expanduser()
+        if not p.is_file():
+            raise FileNotFoundError(f"SAM3_BPE_PATH is set but file not found: {p}")
+        return str(p.resolve())
+    p = Path(__file__).resolve().parent / "assets" / "bpe_simple_vocab_16e6.txt.gz"
+    if not p.is_file():
+        raise FileNotFoundError(
+            f"Missing SAM3 BPE vocab at {p}. "
+            "Download: https://github.com/facebookresearch/sam3/raw/main/sam3/assets/bpe_simple_vocab_16e6.txt.gz"
+        )
+    return str(p)
+
 
 # class to initiate and do segmentation via SAM3
 class Segmentation:
     # initialize the model path and device
-    def __init__(self, model_path: str, device: str = "cuda" if torch.cuda.is_available() else "cpu"):
+    def __init__(
+        self,
+        model_path: str,
+        device: str = "cuda" if torch.cuda.is_available() else "cpu",
+        bpe_path: Optional[str] = None,
+    ):
         self.model_path = model_path
         self.device = device
-        self.model = build_sam3_image_model(checkpoint_path=model_path, load_from_HF=False, device=device, eval_mode=True)
+        bpe = bpe_path or resolve_sam3_bpe_path()
+        self.model = build_sam3_image_model(
+            bpe_path=bpe,
+            checkpoint_path=model_path,
+            load_from_HF=False,
+            device=device,
+            eval_mode=True,
+        )
         self.processor = Sam3Processor(self.model, device=device)
 
     def _to_pil_rgb(self, image: Union[str, np.ndarray]) -> Image.Image:
